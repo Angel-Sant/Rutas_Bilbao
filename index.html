@@ -3,15 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rutas Bilbao — Transporte Escolar</title>
+<title>Transporte Bilbao</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4a8bc4">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Transporte Bilbao">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 <style>
   :root{
-    --forest: #1f3a2e;
-    --forest-deep: #142720;
+    --forest: #4a8bc4;
+    --forest-deep: #2f6491;
     --amber: #d98e2b;
     --amber-light: #f0b458;
     --cream: #f7f4ec;
@@ -38,10 +44,11 @@
   }
   header .brand{display:flex;align-items:center;gap:10px;}
   header .brand .mark{
-    width:30px;height:30px;border-radius:50%;
-    background:var(--amber);
+    width:34px;height:34px;border-radius:50%;
+    background:#fff;
     display:flex;align-items:center;justify-content:center;
     font-weight:700;color:var(--forest-deep);font-size:14px;
+    padding:6px;box-sizing:border-box;
   }
   header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px;}
   header .sub{font-size:11px;opacity:.75;margin-top:1px;}
@@ -175,9 +182,11 @@
 
 <header>
   <div class="brand">
-    <div class="mark">RB</div>
+    <div class="mark">
+      <img src="icon-192.png" alt="Alex" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+    </div>
     <div>
-      <h1>Rutas Bilbao</h1>
+      <h1>Transporte Bilbao</h1>
       <div class="sub">Prototipo de transporte escolar</div>
     </div>
   </div>
@@ -214,7 +223,6 @@
       <div id="mapDriver" style="height:320px;border-radius:14px;overflow:hidden;border:1px solid var(--line);"></div>
     </div>
     <div class="card">
-    <div class="card">
       <h2>Lista de alumnos de la ruta</h2>
       <div id="driverRoster"><p class="empty">Sin alumnos capturados en esta ruta todavía (ve a Admin para agregarlos).</p></div>
       <p class="note">Resaltado en rojo: alumno marcado como "no sube hoy". Por ahora el estado se cambia aquí mismo; cuando conectemos el portal de padres, ellos lo marcarán directamente.</p>
@@ -222,8 +230,8 @@
     <div class="card">
       <h2>Levantar reporte de incidencia (auxiliar)</h2>
       <div class="incident-form">
-        <label>Alumno (opcional)</label>
-        <input type="text" id="incStudent" placeholder="Nombre del alumno">
+        <label>Alumno</label>
+        <select id="incStudent"></select>
         <label>Tipo</label>
         <select id="incType">
           <option>Conducta</option>
@@ -265,8 +273,27 @@
   <!-- ===================== VISTA ADMIN ===================== -->
   <div id="panelAdmin" class="panel">
     <div class="card">
+      <h2>Configuración de notificaciones</h2>
+      <p class="note">Estos correos reciben copia de todos los reportes de incidencia, de cualquier ruta.</p>
+      <div class="field-row">
+        <div>
+          <label>Correo del administrador</label>
+          <input type="text" id="cfgAdminEmail" placeholder="direccion@bilbao.edu.mx">
+        </div>
+        <div>
+          <label>Correo Dirección Colegio Bilbao</label>
+          <input type="text" id="cfgColegioEmail" placeholder="direccion.colegio@bilbao.edu.mx">
+        </div>
+        <div>
+          <label>Correo de Sección</label>
+          <input type="text" id="cfgSeccionEmail" placeholder="seccion@bilbao.edu.mx">
+        </div>
+      </div>
+      <button id="btnSaveConfig" class="primary">Guardar correos de notificación</button>
+    </div>
+    <div class="card">
       <h2>Datos de prueba (demo)</h2>
-      <p class="note">Genera automáticamente 10 alumnos por ruta (50 en total), 1 auxiliar por ruta, y en promedio 1.5 padres por alumno, con direcciones y coordenadas ficticias distribuidas a lo largo de cada ruta. Útil para probar el flujo completo sin capturar todo a mano.</p>
+      <p class="note">Genera automáticamente 10 alumnos por ruta (50 en total), 1 auxiliar por ruta, y 2 padres por alumno, con direcciones y coordenadas ficticias distribuidas a lo largo de cada ruta. Útil para probar el flujo completo sin capturar todo a mano.</p>
       <button id="btnSeedDemo" class="primary">Sembrar datos de prueba en las 5 rutas</button>
       <div id="seedSummary" style="margin-top:10px;"></div>
     </div>
@@ -302,6 +329,36 @@
       <p class="note" id="admNote">La dirección se convierte automáticamente a coordenadas usando OpenStreetMap (Nominatim). Verifica siempre el pin en el mapa antes de generar la ruta.</p>
     </div>
 
+    <div class="card">
+      <h2>Padres de familia y contacto</h2>
+      <div class="field-row">
+        <div>
+          <label>Alumno</label>
+          <select id="padreStudentSel"></select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Nombre del padre/madre</label>
+          <input type="text" id="padreName" placeholder="Nombre completo">
+        </div>
+        <div>
+          <label>Teléfono de contacto</label>
+          <input type="text" id="padrePhone" placeholder="55 1234 5678">
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Correo de contacto</label>
+          <input type="text" id="padreEmail" placeholder="correo@ejemplo.com">
+        </div>
+      </div>
+      <button id="btnAddPadre" class="primary">Agregar padre/madre</button>
+      <table class="student-table" id="padresTable" style="margin-top:14px;">
+        <thead><tr><th>Padre/Madre</th><th>Alumno</th><th>Teléfono</th><th>Correo</th><th></th></tr></thead>
+        <tbody id="padresTableBody"><tr><td colspan="5" class="empty">Sin padres capturados en esta ruta.</td></tr></tbody>
+      </table>
+    </div>
     <div class="card">
       <h2>Alumnos capturados — <span id="admRouteLabel"></span></h2>
       <p class="note" id="admRouteMeta" style="margin-top:-6px;"></p>
@@ -452,11 +509,17 @@ const AVG_SPEED_KMH = 22;
 
 let driverStudentsRef = null, driverAuxRef = null;
 
+const ALEX_MARKER_ICON = L.icon({
+  iconUrl: 'marker-alex.png',
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+});
+
 function drawDriverRoute(path, color){
   if(driverLine) mapDriver.removeLayer(driverLine);
   if(driverMarker) mapDriver.removeLayer(driverMarker);
   driverLine = L.polyline(path, {color, weight:4, opacity:.7}).addTo(mapDriver);
-  driverMarker = L.circleMarker(path[0], {radius:9, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(mapDriver);
+  driverMarker = L.marker(path[0], {icon: ALEX_MARKER_ICON}).addTo(mapDriver);
   mapDriver.fitBounds(driverLine.getBounds(), {padding:[30,30]});
 }
 
@@ -537,21 +600,28 @@ document.getElementById('btnToggleRoute').onclick = async ()=>{
 
 document.getElementById('btnSendIncident').onclick = async ()=>{
   const routeId = driverRouteSel.value;
-  const student = document.getElementById('incStudent').value.trim();
+  const incSel = document.getElementById('incStudent');
+  const student = incSel.options[incSel.selectedIndex] ? incSel.options[incSel.selectedIndex].textContent : 'No especificado';
   const type = document.getElementById('incType').value;
   const desc = document.getElementById('incDesc').value.trim();
   if(!desc){ toast('Escribe una descripción antes de enviar'); return; }
   if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
   await db.ref('incidentes/'+routeId).push({
-    student: student || 'No especificado', type, desc, date: new Date().toLocaleString('es-MX')
+    student, studentId: incSel.value, type, desc, date: new Date().toLocaleString('es-MX')
   });
-  document.getElementById('incStudent').value=''; document.getElementById('incDesc').value='';
+  document.getElementById('incDesc').value='';
   toast('Reporte enviado');
 };
 
 function renderDriverRoster(routeId, studentsObj){
   const container = document.getElementById('driverRoster');
   const list = studentsObj ? Object.entries(studentsObj).map(([id,s])=>({id, ...s})) : [];
+
+  const incSel = document.getElementById('incStudent');
+  const prevVal = incSel.value;
+  incSel.innerHTML = list.map(s=>`<option value="${s.id}">${s.name}</option>`).join('') || '<option value="">Sin alumnos capturados</option>';
+  if(list.some(s=>s.id===prevVal)) incSel.value = prevVal;
+
   if(!list.length){
     container.innerHTML = '<p class="empty">Sin alumnos capturados en esta ruta todavía (ve a Admin para agregarlos).</p>';
     return;
@@ -616,7 +686,7 @@ function drawParentRoute(path, color){
   if(parentLine) mapParent.removeLayer(parentLine);
   if(parentMarker) mapParent.removeLayer(parentMarker);
   parentLine = L.polyline(path, {color, weight:4, opacity:.5, dashArray:'4 6'}).addTo(mapParent);
-  parentMarker = L.circleMarker(path[0], {radius:9, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(mapParent);
+  parentMarker = L.marker(path[0], {icon: ALEX_MARKER_ICON}).addTo(mapParent);
   mapParent.fitBounds(parentLine.getBounds(), {padding:[30,30]});
 }
 
@@ -844,9 +914,8 @@ document.getElementById('btnSeedDemo').onclick = async ()=>{
     await db.ref('auxiliares/'+routeId).set({ name: randDemoName() });
 
     const padresUpdate = {};
-    studentEntries.forEach((s, idx)=>{
-      const numPadres = idx < 5 ? 1 : 2;
-      for(let p=0;p<numPadres;p++){
+    studentEntries.forEach((s)=>{
+      for(let p=0;p<2;p++){
         const pkey = db.ref('padres/'+routeId).push().key;
         padresUpdate[pkey] = { studentId: s.id, studentName: s.name, name: randDemoName() };
       }
@@ -862,6 +931,51 @@ document.getElementById('btnSeedDemo').onclick = async ()=>{
   toast('Datos de prueba cargados en Firebase — genera la ruta óptima de cada una');
 };
 
+document.getElementById('btnAddPadre').onclick = async ()=>{
+  const routeId = admRouteSel.value;
+  const sel = document.getElementById('padreStudentSel');
+  const studentId = sel.value;
+  const studentName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+  const name = document.getElementById('padreName').value.trim();
+  const phone = document.getElementById('padrePhone').value.trim();
+  const email = document.getElementById('padreEmail').value.trim();
+  if(!studentId){ toast('Primero agrega alumnos a esta ruta'); return; }
+  if(!name){ toast('Falta el nombre del padre/madre'); return; }
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+
+  await db.ref('padres/'+routeId).push({ studentId, studentName, name, phone, email });
+  document.getElementById('padreName').value='';
+  document.getElementById('padrePhone').value='';
+  document.getElementById('padreEmail').value='';
+  toast('Padre/madre agregado');
+};
+
+function renderPadresTable(routeId, padresObj){
+  const tbody = document.getElementById('padresTableBody');
+  const list = padresObj ? Object.entries(padresObj).map(([id,p])=>({id, ...p})) : [];
+  if(!list.length){
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Sin padres capturados en esta ruta.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p=>`
+    <tr>
+      <td>${p.name}</td><td>${p.studentName || ''}</td>
+      <td>${p.phone || '—'}</td><td>${p.email || '—'}</td>
+      <td><button class="btn-icon" data-id="${p.id}">Eliminar</button></td>
+    </tr>`).join('');
+  tbody.querySelectorAll('.btn-icon').forEach(b=>{
+    b.onclick = ()=>{ if(__FIREBASE_OK__) db.ref('padres/'+routeId+'/'+b.dataset.id).remove(); };
+  });
+}
+
+function renderPadreStudentSelect(studentsObj){
+  const sel = document.getElementById('padreStudentSel');
+  const list = studentsObj ? Object.entries(studentsObj).map(([id,s])=>({id, ...s})) : [];
+  const prevVal = sel.value;
+  sel.innerHTML = list.map(s=>`<option value="${s.id}">${s.name}</option>`).join('') || '<option value="">Sin alumnos</option>';
+  if(list.some(s=>s.id===prevVal)) sel.value = prevVal;
+}
+
 function attachAdminListeners(routeId){
   if(admStudentsRef) admStudentsRef.off();
   if(admAuxRef) admAuxRef.off();
@@ -872,18 +986,38 @@ function attachAdminListeners(routeId){
   function render(){ renderAdminTable(routeId, latestStudents, latestAux, latestPadres); }
 
   admStudentsRef = db.ref('alumnos/'+routeId);
-  admStudentsRef.on('value', snap=>{ latestStudents = snap.val(); render(); });
+  admStudentsRef.on('value', snap=>{ latestStudents = snap.val(); render(); renderPadreStudentSelect(latestStudents); });
   admAuxRef = db.ref('auxiliares/'+routeId);
   admAuxRef.on('value', snap=>{ latestAux = snap.val(); render(); });
   admPadresRef = db.ref('padres/'+routeId);
-  admPadresRef.on('value', snap=>{ latestPadres = snap.val(); render(); });
+  admPadresRef.on('value', snap=>{ latestPadres = snap.val(); render(); renderPadresTable(routeId, latestPadres); });
 }
 
 admRouteSel.addEventListener('change', ()=>attachAdminListeners(admRouteSel.value));
 
+/* ---------- Configuración de notificaciones ---------- */
+async function loadNotifyConfig(){
+  if(!__FIREBASE_OK__) return;
+  const snap = await db.ref('config/notifyEmails').once('value');
+  const cfg = snap.val() || {};
+  document.getElementById('cfgAdminEmail').value = cfg.admin || '';
+  document.getElementById('cfgColegioEmail').value = cfg.colegio || '';
+  document.getElementById('cfgSeccionEmail').value = cfg.seccion || '';
+}
+document.getElementById('btnSaveConfig').onclick = async ()=>{
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+  await db.ref('config/notifyEmails').set({
+    admin: document.getElementById('cfgAdminEmail').value.trim(),
+    colegio: document.getElementById('cfgColegioEmail').value.trim(),
+    seccion: document.getElementById('cfgSeccionEmail').value.trim(),
+  });
+  toast('Correos de notificación guardados');
+};
+
 /* ---------- Init ---------- */
 drawDriverRoute(ROUTES.r1.path, ROUTES.r1.color);
 attachDriverListeners('r1');
+loadNotifyConfig();
 /* Padre y Admin se inicializan hasta que el usuario abre esa pestaña por primera vez
    (evita el bug de Leaflet al crear un mapa dentro de un contenedor oculto). */
 
@@ -898,6 +1032,13 @@ if(window.__LEAFLET_FAILED__){
   banner2.style.cssText = 'position:sticky;top:56px;z-index:999;background:#f2e2e0;color:#8a2f1c;padding:8px 16px;font-size:12px;text-align:center;border-bottom:1px solid #e3b2a4;';
   banner2.textContent = 'No se pudo cargar el mapa (falló la conexión al proveedor de mapas). El resto de la app funciona con normalidad.';
   document.body.insertBefore(banner2, document.querySelector('main'));
+}
+
+/* Registro del Service Worker — habilita instalación como app (PWA) */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(err=>console.error('SW registration failed', err));
+  });
 }
 </script>
 </body>
