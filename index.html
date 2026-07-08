@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rutas Bilbao — Transporte Escolar</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --forest: #1f3a2e;
+    --forest-deep: #142720;
+    --amber: #d98e2b;
+    --amber-light: #f0b458;
+    --cream: #f7f4ec;
+    --slate: #3c4a44;
+    --line: #d8d2c2;
+    --danger: #b8452f;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    background:var(--cream);
+    color:var(--forest-deep);
+  }
+  header{
+    background:var(--forest);
+    color:var(--cream);
+    padding:14px 18px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    box-shadow:0 2px 6px rgba(0,0,0,.15);
+    position:sticky;top:0;z-index:1000;
+  }
+  header .brand{display:flex;align-items:center;gap:10px;}
+  header .brand .mark{
+    width:30px;height:30px;border-radius:50%;
+    background:var(--amber);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;color:var(--forest-deep);font-size:14px;
+  }
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px;}
+  header .sub{font-size:11px;opacity:.75;margin-top:1px;}
+
+  .tabs{display:flex;gap:6px;}
+  .tabs button{
+    background:transparent;border:1px solid rgba(247,244,236,.35);
+    color:var(--cream);padding:7px 14px;border-radius:20px;
+    font-size:13px;cursor:pointer;transition:.15s;
+  }
+  .tabs button.active{background:var(--amber);border-color:var(--amber);color:var(--forest-deep);font-weight:600;}
+
+  main{max-width:900px;margin:0 auto;padding:16px;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .card{
+    background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:16px;margin-bottom:14px;
+  }
+  .card h2{margin:0 0 10px;font-size:14px;color:var(--forest);text-transform:uppercase;letter-spacing:.6px;}
+
+  select, button.primary{
+    font-family:inherit;font-size:14px;padding:10px 14px;border-radius:10px;
+    border:1px solid var(--line);background:#fff;
+  }
+  select{width:100%;margin-bottom:10px;}
+
+  button.primary{
+    background:var(--forest);color:var(--cream);border:none;cursor:pointer;
+    font-weight:600;transition:.15s;
+  }
+  button.primary:hover{background:var(--forest-deep);}
+  button.primary.stop{background:var(--danger);}
+  button.primary:disabled{opacity:.5;cursor:not-allowed;}
+
+  #map{height:360px;border-radius:14px;overflow:hidden;border:1px solid var(--line);}
+
+  .status-row{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
+  .badge{
+    font-size:12px;padding:4px 10px;border-radius:20px;background:var(--line);
+    color:var(--forest-deep);font-weight:600;
+  }
+  .badge.live{background:#dff0e4;color:#1f6b3b;}
+  .badge.stopped{background:#f2e2e0;color:var(--danger);}
+
+  .stars{display:flex;gap:6px;font-size:32px;cursor:pointer;justify-content:center;margin:10px 0;}
+  .stars span{color:#d8d2c2;transition:.1s;}
+  .stars span.filled{color:var(--amber);}
+
+  .incident-form label{display:block;font-size:12px;color:var(--slate);margin:8px 0 4px;font-weight:600;}
+  textarea, input[type=text]{
+    width:100%;font-family:inherit;font-size:14px;padding:9px 10px;
+    border:1px solid var(--line);border-radius:8px;resize:vertical;
+  }
+  .incident-list{margin-top:12px;}
+  .incident-item{
+    border-left:3px solid var(--amber);background:var(--cream);
+    padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;
+  }
+  .incident-item .meta{font-size:11px;color:var(--slate);margin-top:2px;}
+  .empty{color:var(--slate);font-size:13px;font-style:italic;}
+  .note{font-size:12px;color:var(--slate);margin-top:6px;}
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--forest-deep);color:var(--cream);padding:10px 18px;
+    border-radius:20px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;
+    z-index:2000;
+  }
+  .toast.show{opacity:1;}
+
+  .field-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .field-row > div{flex:1;min-width:140px;}
+  .field-row label{display:block;font-size:12px;color:var(--slate);margin-bottom:4px;font-weight:600;}
+  .student-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  .student-table th{
+    text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;
+    color:var(--slate);border-bottom:1px solid var(--line);padding:6px 8px;
+  }
+  .student-table td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .student-table tr:last-child td{border-bottom:none;}
+  .geostatus{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;display:inline-block;}
+  .geostatus.ok{background:#dff0e4;color:#1f6b3b;}
+  .geostatus.pending{background:#f0e6d2;color:#8a5a12;}
+  .geostatus.err{background:#f2e2e0;color:var(--danger);}
+  .btn-icon{
+    background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;
+    text-decoration:underline;padding:0;
+  }
+  .spinner{
+    display:inline-block;width:12px;height:12px;border:2px solid var(--line);
+    border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .order-badge{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:20px;height:20px;border-radius:50%;background:var(--forest);color:var(--cream);
+    font-size:11px;font-weight:700;margin-right:6px;
+  }
+
+  .roster-row{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 10px;border-radius:10px;margin-bottom:6px;background:var(--cream);
+    border:1px solid var(--line);
+  }
+  .roster-row.absent{
+    background:#f7e6e2;border-color:#e3b2a4;
+  }
+  .roster-info{font-size:13px;}
+  .roster-info .addr{font-size:11px;color:var(--slate);}
+  .roster-tag{
+    font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;
+    background:var(--danger);color:#fff;
+  }
+  .roster-toggle{
+    font-size:11px;padding:5px 10px;border-radius:8px;border:1px solid var(--line);
+    background:#fff;cursor:pointer;white-space:nowrap;
+  }
+
+  .clock-card{text-align:center;}
+  .clock-label{font-size:13px;color:var(--slate);margin-bottom:4px;}
+  .clock-name{font-size:16px;font-weight:700;color:var(--forest);margin-bottom:6px;}
+  .clock-time{
+    font-size:36px;font-weight:700;color:var(--amber);letter-spacing:1px;
+    font-variant-numeric:tabular-nums;
+  }
+  .clock-sub{font-size:11px;color:var(--slate);margin-top:4px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark">RB</div>
+    <div>
+      <h1>Rutas Bilbao</h1>
+      <div class="sub">Prototipo de transporte escolar</div>
+    </div>
+  </div>
+  <div class="tabs">
+    <button id="tabDriver" class="active">Auxiliar</button>
+    <button id="tabParent">Padre</button>
+    <button id="tabAdmin">Admin</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===================== VISTA CONDUCTOR ===================== -->
+  <div id="panelDriver" class="panel active">
+    <div class="card">
+      <h2>Ruta asignada</h2>
+      <select id="driverRoute"></select>
+      <p class="note" id="driverAuxLabel" style="margin-top:-4px;"></p>
+      <div class="status-row">
+        <span id="driverStatus" class="badge stopped">Detenida</span>
+      </div>
+      <button id="btnToggleRoute" class="primary">Iniciar recorrido</button>
+      <p class="note">La auxiliar inicia el recorrido al subir a los alumnos y lo termina al bajar al último alumno. Mientras el recorrido está activo, la posición se actualiza automáticamente, como lo haría el GPS del vehículo.</p>
+    </div>
+    <div class="card clock-card" id="clockCard" style="display:none;">
+      <h2 style="text-align:left;">Siguiente parada</h2>
+      <div class="clock-label">Vamos hacia:</div>
+      <div class="clock-name" id="clockName">—</div>
+      <div class="clock-time" id="clockTime">--:--</div>
+      <div class="clock-sub">Tiempo estimado, calculado por distancia y velocidad promedio</div>
+    </div>
+    <div class="card">
+      <h2>Mapa en vivo — vista de la auxiliar</h2>
+      <div id="mapDriver" style="height:320px;border-radius:14px;overflow:hidden;border:1px solid var(--line);"></div>
+    </div>
+    <div class="card">
+    <div class="card">
+      <h2>Lista de alumnos de la ruta</h2>
+      <div id="driverRoster"><p class="empty">Sin alumnos capturados en esta ruta todavía (ve a Admin para agregarlos).</p></div>
+      <p class="note">Resaltado en rojo: alumno marcado como "no sube hoy". Por ahora el estado se cambia aquí mismo; cuando conectemos el portal de padres, ellos lo marcarán directamente.</p>
+    </div>
+    <div class="card">
+      <h2>Levantar reporte de incidencia (auxiliar)</h2>
+      <div class="incident-form">
+        <label>Alumno (opcional)</label>
+        <input type="text" id="incStudent" placeholder="Nombre del alumno">
+        <label>Tipo</label>
+        <select id="incType">
+          <option>Conducta</option>
+          <option>Retraso</option>
+          <option>Ausencia sin aviso</option>
+          <option>Mecánica / vehículo</option>
+          <option>Otro</option>
+        </select>
+        <label>Descripción</label>
+        <textarea id="incDesc" rows="3" placeholder="Describe lo ocurrido..."></textarea>
+        <button id="btnSendIncident" class="primary" style="margin-top:10px;">Enviar reporte</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== VISTA PADRE ===================== -->
+  <div id="panelParent" class="panel">
+    <div class="card">
+      <h2>Ruta de mi hijo(a)</h2>
+      <select id="parentRoute"></select>
+      <div class="status-row">
+        <span id="parentStatus" class="badge stopped">Sin viaje activo</span>
+      </div>
+      <div id="map" style="height:320px;border-radius:14px;overflow:hidden;border:1px solid var(--line);"></div>
+    </div>
+    <div class="card" id="ratingCard" style="display:none;">
+      <h2>¿Cómo estuvo el viaje?</h2>
+      <div class="stars" id="stars">
+        <span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span>
+      </div>
+      <p class="note" id="ratingMsg" style="text-align:center;"></p>
+    </div>
+    <div class="card">
+      <h2>Reportes recientes de esta ruta</h2>
+      <div id="incidentList" class="incident-list"><p class="empty">Sin reportes por ahora.</p></div>
+    </div>
+  </div>
+
+  <!-- ===================== VISTA ADMIN ===================== -->
+  <div id="panelAdmin" class="panel">
+    <div class="card">
+      <h2>Datos de prueba (demo)</h2>
+      <p class="note">Genera automáticamente 10 alumnos por ruta (50 en total), 1 auxiliar por ruta, y en promedio 1.5 padres por alumno, con direcciones y coordenadas ficticias distribuidas a lo largo de cada ruta. Útil para probar el flujo completo sin capturar todo a mano.</p>
+      <button id="btnSeedDemo" class="primary">Sembrar datos de prueba en las 5 rutas</button>
+      <div id="seedSummary" style="margin-top:10px;"></div>
+    </div>
+    <div class="card">
+      <h2>Agregar alumno a una ruta</h2>
+      <div class="field-row">
+        <div>
+          <label>Ruta</label>
+          <select id="admRoute"></select>
+        </div>
+        <div>
+          <label>Turno de la parada</label>
+          <select id="admTurno">
+            <option value="ambos">Recogida y entrega (mismo punto)</option>
+            <option value="am">Solo recogida (mañana)</option>
+            <option value="pm">Solo entrega (tarde)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Nombre del alumno</label>
+          <input type="text" id="admName" placeholder="Nombre completo">
+        </div>
+      </div>
+      <div class="field-row">
+        <div>
+          <label>Dirección (calle, número, colonia, CDMX)</label>
+          <input type="text" id="admAddress" placeholder="Ej. Calle Roble 45, Las Águilas, CDMX">
+        </div>
+      </div>
+      <button id="btnAddStudent" class="primary">Agregar y geocodificar</button>
+      <p class="note" id="admNote">La dirección se convierte automáticamente a coordenadas usando OpenStreetMap (Nominatim). Verifica siempre el pin en el mapa antes de generar la ruta.</p>
+    </div>
+
+    <div class="card">
+      <h2>Alumnos capturados — <span id="admRouteLabel"></span></h2>
+      <p class="note" id="admRouteMeta" style="margin-top:-6px;"></p>
+      <table class="student-table" id="admTable">
+        <thead><tr><th>Alumno</th><th>Dirección</th><th>Turno</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="admTableBody"><tr><td colspan="5" class="empty">Sin alumnos capturados en esta ruta.</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Generar ruta óptima</h2>
+      <p class="note">Calcula el mejor orden de paradas partiendo del colegio, usando las direcciones ya geocodificadas de esta ruta. Se guarda y se refleja automáticamente en las vistas de Auxiliar y Padre.</p>
+      <button id="btnOptimize" class="primary">Generar ruta óptima</button>
+      <div id="mapAdmin" style="height:320px;border-radius:14px;overflow:hidden;border:1px solid var(--line);margin-top:12px;"></div>
+    </div>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div><script>
+/* Blindaje: si Leaflet no llegó a cargar (red lenta, bloqueo, CDN caído),
+   evitamos que la app entera se rompa. */
+if (typeof L === 'undefined') {
+  window.__LEAFLET_FAILED__ = true;
+  window.L = (function(){
+    function chain(){
+      const o = {};
+      ['addTo','setLatLng','setView','panTo','removeLayer','fitBounds','invalidateSize','bindTooltip'].forEach(m=>{ o[m] = ()=>o; });
+      o.getBounds = ()=>({});
+      return o;
+    }
+    return {
+      map(){ return chain(); }, tileLayer(){ return chain(); }, polyline(){ return chain(); },
+      circleMarker(){ return chain(); }, marker(){ return chain(); }, latLngBounds(){ return chain(); },
+    };
+  })();
+}
+
+/* ---------- Firebase ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyAB17etP2RcTdgUGN0SPVxASsdKqomS2zU",
+  authDomain: "rutas-bilbao.firebaseapp.com",
+  databaseURL: "https://rutas-bilbao-default-rtdb.firebaseio.com",
+  projectId: "rutas-bilbao",
+  storageBucket: "rutas-bilbao.firebasestorage.app",
+  messagingSenderId: "1024214893395",
+  appId: "1:1024214893395:web:8873b37286630b4c2fd7a6"
+};
+let db = null;
+let __FIREBASE_OK__ = false;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+  __FIREBASE_OK__ = true;
+}catch(e){
+  console.error('Firebase no se pudo inicializar', e);
+}
+
+/* ---------- Datos base ---------- */
+const SCHOOL = [19.3033, -99.3222];
+const ROUTES = {
+  r1: { name: "Ruta 1 — Las Águilas", color:"#d98e2b",
+    path: [[19.3033,-99.3222],[19.318,-99.300],[19.330,-99.270],[19.338,-99.240],[19.343,-99.211]] },
+  r2: { name: "Ruta 2 — San Jerónimo", color:"#1f6b3b",
+    path: [[19.3033,-99.3222],[19.313,-99.295],[19.320,-99.265],[19.325,-99.245],[19.328,-99.238]] },
+  r3: { name: "Ruta 3 — La Herradura", color:"#4a6fa5",
+    path: [[19.3033,-99.3222],[19.325,-99.300],[19.355,-99.280],[19.380,-99.265],[19.400,-99.258]] },
+  r4: { name: "Ruta 4 — Reforma", color:"#8a4fae",
+    path: [[19.3033,-99.3222],[19.320,-99.290],[19.345,-99.260],[19.375,-99.230],[19.405,-99.200]] },
+  r5: { name: "Ruta 5 — Constituyentes", color:"#b8452f",
+    path: [[19.3033,-99.3222],[19.318,-99.290],[19.340,-99.260],[19.365,-99.235],[19.393,-99.211]] },
+};
+const ROUTE_KEYS = Object.keys(ROUTES);
+const ROUTE_COLONIA = { r1:"Las Águilas", r2:"San Jerónimo", r3:"La Herradura", r4:"Reforma", r5:"Constituyentes" };
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function lerp(a,b,t){ return a + (b-a)*t; }
+function haversineKm(a, b){
+  const R = 6371;
+  const dLat = (b[0]-a[0]) * Math.PI/180;
+  const dLng = (b[1]-a[1]) * Math.PI/180;
+  const lat1 = a[0]*Math.PI/180, lat2 = b[0]*Math.PI/180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function formatMMSS(totalSeconds){
+  totalSeconds = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(totalSeconds/60);
+  const s = totalSeconds%60;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+/* ---------- Tabs ---------- */
+const tabDriver = document.getElementById('tabDriver');
+const tabParent = document.getElementById('tabParent');
+const tabAdmin = document.getElementById('tabAdmin');
+const panelDriver = document.getElementById('panelDriver');
+const panelParent = document.getElementById('panelParent');
+const panelAdmin = document.getElementById('panelAdmin');
+const allTabs = [tabDriver, tabParent, tabAdmin];
+const allPanels = [panelDriver, panelParent, panelAdmin];
+function activateTab(tab, panel){
+  allTabs.forEach(t=>t.classList.remove('active'));
+  allPanels.forEach(p=>p.classList.remove('active'));
+  tab.classList.add('active'); panel.classList.add('active');
+}
+tabDriver.onclick = ()=>{
+  activateTab(tabDriver, panelDriver);
+  setTimeout(()=>mapDriver.invalidateSize(), 100);
+  attachDriverListeners(driverRouteSel.value);
+};
+tabParent.onclick = ()=>{
+  activateTab(tabParent, panelParent);
+  ensureMapParent();
+  setTimeout(()=>mapParent.invalidateSize(), 100);
+  attachParentListeners(parentRouteSel.value);
+};
+tabAdmin.onclick = ()=>{
+  activateTab(tabAdmin, panelAdmin);
+  ensureMapAdmin();
+  setTimeout(()=>mapAdmin.invalidateSize(), 100);
+  attachAdminListeners(admRouteSel.value);
+};
+
+/* ---------- Selects ---------- */
+const driverRouteSel = document.getElementById('driverRoute');
+const parentRouteSel = document.getElementById('parentRoute');
+const admRouteSel = document.getElementById('admRoute');
+ROUTE_KEYS.forEach(k=>{
+  const o1 = document.createElement('option'); o1.value=k; o1.textContent=ROUTES[k].name; driverRouteSel.appendChild(o1);
+  const o2 = document.createElement('option'); o2.value=k; o2.textContent=ROUTES[k].name; parentRouteSel.appendChild(o2);
+  const o3 = document.createElement('option'); o3.value=k; o3.textContent=ROUTES[k].name; admRouteSel.appendChild(o3);
+});
+
+/* =========================================================
+   AUXILIAR (conductor/monitora)
+   ========================================================= */
+const mapDriver = L.map('mapDriver').setView(ROUTES.r1.path[0], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(mapDriver);
+let driverLine, driverMarker;
+let simInterval = null, simStep = 0, simPath = null, simStopNames = null;
+const AVG_SPEED_KMH = 22;
+
+let driverStudentsRef = null, driverAuxRef = null;
+
+function drawDriverRoute(path, color){
+  if(driverLine) mapDriver.removeLayer(driverLine);
+  if(driverMarker) mapDriver.removeLayer(driverMarker);
+  driverLine = L.polyline(path, {color, weight:4, opacity:.7}).addTo(mapDriver);
+  driverMarker = L.circleMarker(path[0], {radius:9, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(mapDriver);
+  mapDriver.fitBounds(driverLine.getBounds(), {padding:[30,30]});
+}
+
+function updateClockDisplay(currentLatLng, nextIdx, path){
+  const clockCard = document.getElementById('clockCard');
+  if(!path || nextIdx >= path.length){ clockCard.style.display='none'; return; }
+  clockCard.style.display = 'block';
+  const nextPoint = path[nextIdx];
+  const distKm = haversineKm(currentLatLng, nextPoint);
+  const etaSeconds = (distKm / AVG_SPEED_KMH) * 3600;
+  let label = 'Colegio';
+  if(simStopNames && simStopNames[nextIdx-1]) label = simStopNames[nextIdx-1];
+  else if(nextIdx > 0) label = 'Parada ' + nextIdx;
+  document.getElementById('clockName').textContent = label;
+  document.getElementById('clockTime').textContent = formatMMSS(etaSeconds);
+}
+
+function tickSimulation(){
+  const routeId = driverRouteSel.value;
+  const path = simPath || ROUTES[routeId].path;
+  const totalSegments = path.length - 1;
+  const totalSteps = totalSegments * 4;
+  if(simStep > totalSteps){ finishRoute(routeId); return; }
+  const segIndex = Math.min(Math.floor(simStep/4), totalSegments-1);
+  const t = (simStep % 4)/4;
+  const p0 = path[segIndex], p1 = path[segIndex+1];
+  const lat = lerp(p0[0], p1[0], t);
+  const lng = lerp(p0[1], p1[1], t);
+  driverMarker.setLatLng([lat,lng]);
+  mapDriver.panTo([lat,lng], {animate:true});
+  updateClockDisplay([lat,lng], segIndex+1, path);
+  if(__FIREBASE_OK__) db.ref('rutas/'+routeId+'/ubicacion').set({lat, lng, active:true, updated:Date.now()});
+  simStep++;
+}
+
+function finishRoute(routeId){
+  const endPoint = (simPath || ROUTES[routeId].path).at(-1);
+  stopSimulation();
+  if(__FIREBASE_OK__) db.ref('rutas/'+routeId+'/ubicacion').set({lat:endPoint[0], lng:endPoint[1], active:false, finished:true, updated:Date.now()});
+  document.getElementById('driverStatus').textContent = 'Recorrido finalizado';
+  document.getElementById('driverStatus').className = 'badge stopped';
+  document.getElementById('btnToggleRoute').textContent = 'Iniciar recorrido';
+  document.getElementById('btnToggleRoute').classList.remove('stop');
+  document.getElementById('clockCard').style.display = 'none';
+  toast('Recorrido finalizado — se notificó a los padres para calificar el viaje');
+}
+function stopSimulation(){
+  if(simInterval){ clearInterval(simInterval); simInterval=null; }
+  simStep = 0;
+}
+
+document.getElementById('btnToggleRoute').onclick = async ()=>{
+  const btn = document.getElementById('btnToggleRoute');
+  const statusEl = document.getElementById('driverStatus');
+  const routeId = driverRouteSel.value;
+  if(simInterval){
+    stopSimulation();
+    btn.textContent = 'Iniciar recorrido';
+    btn.classList.remove('stop');
+    statusEl.textContent = 'Detenida';
+    statusEl.className = 'badge stopped';
+    document.getElementById('clockCard').style.display = 'none';
+    if(__FIREBASE_OK__) db.ref('rutas/'+routeId+'/ubicacion/active').set(false);
+  }else{
+    simStep = 0;
+    const snap = __FIREBASE_OK__ ? await db.ref('rutas/'+routeId+'/optimizado').once('value') : null;
+    const opt = snap ? snap.val() : null;
+    simPath = (opt && opt.path) ? opt.path : ROUTES[routeId].path;
+    simStopNames = (opt && opt.nombres) ? opt.nombres : null;
+    btn.textContent = 'Terminar recorrido';
+    btn.classList.add('stop');
+    statusEl.textContent = 'En vivo';
+    statusEl.className = 'badge live';
+    simInterval = setInterval(tickSimulation, 900);
+    toast('Simulando GPS — en un celular real esto vendría de navigator.geolocation');
+  }
+};
+
+document.getElementById('btnSendIncident').onclick = async ()=>{
+  const routeId = driverRouteSel.value;
+  const student = document.getElementById('incStudent').value.trim();
+  const type = document.getElementById('incType').value;
+  const desc = document.getElementById('incDesc').value.trim();
+  if(!desc){ toast('Escribe una descripción antes de enviar'); return; }
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+  await db.ref('incidentes/'+routeId).push({
+    student: student || 'No especificado', type, desc, date: new Date().toLocaleString('es-MX')
+  });
+  document.getElementById('incStudent').value=''; document.getElementById('incDesc').value='';
+  toast('Reporte enviado');
+};
+
+function renderDriverRoster(routeId, studentsObj){
+  const container = document.getElementById('driverRoster');
+  const list = studentsObj ? Object.entries(studentsObj).map(([id,s])=>({id, ...s})) : [];
+  if(!list.length){
+    container.innerHTML = '<p class="empty">Sin alumnos capturados en esta ruta todavía (ve a Admin para agregarlos).</p>';
+    return;
+  }
+  container.innerHTML = list.map(s=>`
+    <div class="roster-row ${s.ausente ? 'absent':''}">
+      <div class="roster-info">
+        <strong>${s.name}</strong>
+        ${s.ausente ? '<span class="roster-tag" style="margin-left:8px;">No sube hoy</span>' : ''}
+        <div class="addr">${s.address}</div>
+      </div>
+      <button class="roster-toggle" data-id="${s.id}">${s.ausente ? 'Marcar que sí asiste' : 'Marcar que no asiste hoy'}</button>
+    </div>`).join('');
+  container.querySelectorAll('.roster-toggle').forEach(btn=>{
+    btn.onclick = ()=>{
+      if(!__FIREBASE_OK__) return;
+      db.ref('alumnos/'+routeId+'/'+btn.dataset.id+'/ausente').set(!list.find(s=>s.id===btn.dataset.id).ausente);
+    };
+  });
+}
+
+async function updateDriverAuxLabel(routeId, auxObj){
+  document.getElementById('driverAuxLabel').textContent = (auxObj && auxObj.name) ? `Auxiliar asignada: ${auxObj.name}` : '';
+}
+
+function attachDriverListeners(routeId){
+  if(driverStudentsRef) driverStudentsRef.off();
+  if(driverAuxRef) driverAuxRef.off();
+  if(!__FIREBASE_OK__){ renderDriverRoster(routeId, null); return; }
+  driverStudentsRef = db.ref('alumnos/'+routeId);
+  driverStudentsRef.on('value', snap => renderDriverRoster(routeId, snap.val()));
+  driverAuxRef = db.ref('auxiliares/'+routeId);
+  driverAuxRef.on('value', snap => updateDriverAuxLabel(routeId, snap.val()));
+
+  db.ref('rutas/'+routeId+'/optimizado').once('value').then(snap=>{
+    const opt = snap.val();
+    const path = (opt && opt.path) ? opt.path : ROUTES[routeId].path;
+    drawDriverRoute(path, ROUTES[routeId].color);
+  });
+}
+
+driverRouteSel.addEventListener('change', ()=>{
+  stopSimulation();
+  document.getElementById('clockCard').style.display = 'none';
+  attachDriverListeners(driverRouteSel.value);
+});
+
+/* =========================================================
+   PADRE
+   ========================================================= */
+let mapParent = null;
+function ensureMapParent(){
+  if(mapParent) return mapParent;
+  mapParent = L.map('map').setView(ROUTES.r1.path[0], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(mapParent);
+  return mapParent;
+}
+let parentLine, parentMarker;
+let parentLocRef = null, parentIncRef = null;
+
+function drawParentRoute(path, color){
+  if(parentLine) mapParent.removeLayer(parentLine);
+  if(parentMarker) mapParent.removeLayer(parentMarker);
+  parentLine = L.polyline(path, {color, weight:4, opacity:.5, dashArray:'4 6'}).addTo(mapParent);
+  parentMarker = L.circleMarker(path[0], {radius:9, color:'#fff', weight:2, fillColor:color, fillOpacity:1}).addTo(mapParent);
+  mapParent.fitBounds(parentLine.getBounds(), {padding:[30,30]});
+}
+
+function renderIncidents(list){
+  const container = document.getElementById('incidentList');
+  if(!list.length){ container.innerHTML = '<p class="empty">Sin reportes por ahora.</p>'; return; }
+  container.innerHTML = list.slice(-8).reverse().map(i=>`
+    <div class="incident-item">
+      <strong>${i.type}</strong> — ${i.student}<br>
+      ${i.desc}
+      <div class="meta">${i.date}</div>
+    </div>`).join('');
+}
+
+async function attachParentListeners(routeId){
+  if(parentLocRef) parentLocRef.off();
+  if(parentIncRef) parentIncRef.off();
+
+  const snap = __FIREBASE_OK__ ? await db.ref('rutas/'+routeId+'/optimizado').once('value') : null;
+  const opt = snap ? snap.val() : null;
+  const path = (opt && opt.path) ? opt.path : ROUTES[routeId].path;
+  drawParentRoute(path, ROUTES[routeId].color);
+
+  if(!__FIREBASE_OK__) return;
+  parentLocRef = db.ref('rutas/'+routeId+'/ubicacion');
+  parentLocRef.on('value', snap=>{
+    if(!parentMarker) return;
+    const state = snap.val();
+    const statusEl = document.getElementById('parentStatus');
+    const ratingCard = document.getElementById('ratingCard');
+    if(state && state.lat){
+      parentMarker.setLatLng([state.lat, state.lng]);
+      if(state.active){
+        statusEl.textContent = 'En camino — ubicación en vivo';
+        statusEl.className = 'badge live';
+        ratingCard.style.display = 'none';
+      }else if(state.finished){
+        statusEl.textContent = 'Viaje finalizado';
+        statusEl.className = 'badge stopped';
+        ratingCard.style.display = 'block';
+      }else{
+        statusEl.textContent = 'Sin viaje activo';
+        statusEl.className = 'badge stopped';
+      }
+    }
+  });
+  parentIncRef = db.ref('incidentes/'+routeId);
+  parentIncRef.on('value', snap=>{
+    const val = snap.val();
+    renderIncidents(val ? Object.values(val) : []);
+  });
+}
+
+parentRouteSel.addEventListener('change', ()=>attachParentListeners(parentRouteSel.value));
+
+const starsEl = document.getElementById('stars');
+starsEl.querySelectorAll('span').forEach(star=>{
+  star.onclick = ()=>{
+    const v = parseInt(star.dataset.v);
+    starsEl.querySelectorAll('span').forEach(s=>{ s.classList.toggle('filled', parseInt(s.dataset.v) <= v); });
+    document.getElementById('ratingMsg').textContent = `Calificaste el viaje con ${v} estrella${v>1?'s':''}. ¡Gracias!`;
+    if(__FIREBASE_OK__) db.ref('calificaciones/'+parentRouteSel.value).push({v, date: Date.now()});
+  };
+});
+
+/* =========================================================
+   ADMIN
+   ========================================================= */
+let mapAdmin = null;
+function ensureMapAdmin(){
+  if(mapAdmin) return mapAdmin;
+  mapAdmin = L.map('mapAdmin').setView(SCHOOL, 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(mapAdmin);
+  return mapAdmin;
+}
+let admMarkers = [], admLine = null;
+let admStudentsRef = null, admAuxRef = null, admPadresRef = null;
+
+const DEMO_FIRST_NAMES = ["Mariana","Diego","Valentina","Santiago","Regina","Emiliano","Ximena","Mateo","Renata","Sebastián","Camila","Luis","Fernanda","Andrés","Paulina","Daniel","Sofía","Gael","Isabella","Rodrigo"];
+const DEMO_LAST_NAMES = ["García","Hernández","Martínez","López","González","Pérez","Sánchez","Ramírez","Flores","Torres","Rivera","Gómez","Díaz","Reyes","Morales","Cruz","Ortiz","Castillo","Romero","Vargas"];
+const DEMO_STREETS = ["Roble","Encino","Alondras","Pinos","Fuentes","Girasoles","Palmas","Olivo","Jazmín","Cedros","Magnolias","Sauces"];
+function randPick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function randDemoName(){ return randPick(DEMO_FIRST_NAMES) + " " + randPick(DEMO_LAST_NAMES); }
+
+function haversine(a,b){ return haversineKm(a,b); }
+function nearestNeighborOrder(students){
+  const remaining = [...students];
+  const order = [];
+  let current = SCHOOL;
+  while(remaining.length){
+    let bestIdx = 0, bestDist = Infinity;
+    remaining.forEach((s,i)=>{ const d = haversine(current, [s.lat, s.lng]); if(d < bestDist){ bestDist = d; bestIdx = i; } });
+    const next = remaining.splice(bestIdx,1)[0];
+    order.push(next);
+    current = [next.lat, next.lng];
+  }
+  return order;
+}
+
+async function geocode(address){
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=mx&q=' + encodeURIComponent(address + ', Ciudad de México');
+  try{
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const data = await res.json();
+    if(data && data.length) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  }catch(e){ console.error('geocode error', e); }
+  return null;
+}
+
+document.getElementById('btnAddStudent').onclick = async ()=>{
+  const routeId = admRouteSel.value;
+  const name = document.getElementById('admName').value.trim();
+  const address = document.getElementById('admAddress').value.trim();
+  const turno = document.getElementById('admTurno').value;
+  if(!name || !address){ toast('Falta el nombre o la dirección'); return; }
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+
+  const btn = document.getElementById('btnAddStudent');
+  btn.disabled = true; btn.textContent = 'Geocodificando...';
+  const geo = await geocode(address);
+
+  await db.ref('alumnos/'+routeId).push({
+    name, address, turno,
+    lat: geo ? geo.lat : null, lng: geo ? geo.lng : null,
+    status: geo ? 'ok' : 'err', ausente: false
+  });
+
+  document.getElementById('admName').value = '';
+  document.getElementById('admAddress').value = '';
+  btn.disabled = false; btn.textContent = 'Agregar y geocodificar';
+  toast(geo ? 'Alumno agregado y ubicado en el mapa' : 'No se pudo ubicar la dirección — revísala e inténtalo de nuevo');
+};
+
+function renderAdminTable(routeId, studentsObj, auxObj, padresObj){
+  document.getElementById('admRouteLabel').textContent = ROUTES[routeId].name;
+  const list = studentsObj ? Object.entries(studentsObj).map(([id,s])=>({id, ...s})) : [];
+  const padresCount = padresObj ? Object.keys(padresObj).length : 0;
+  document.getElementById('admRouteMeta').textContent =
+    (auxObj && auxObj.name ? `Auxiliar asignada: ${auxObj.name} · ` : 'Sin auxiliar asignada aún · ') +
+    `Padres registrados: ${padresCount}`;
+
+  const tbody = document.getElementById('admTableBody');
+  if(!list.length){
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Sin alumnos capturados en esta ruta.</td></tr>';
+  }else{
+    const turnoLabel = {ambos:'Recogida y entrega', am:'Solo mañana', pm:'Solo tarde'};
+    tbody.innerHTML = list.map(s=>`
+      <tr>
+        <td>${s.name}</td><td>${s.address}</td>
+        <td>${turnoLabel[s.turno] || s.turno}</td>
+        <td><span class="geostatus ${s.status==='ok'?'ok':'err'}">${s.status==='ok'?'Ubicado':'Sin ubicar'}</span></td>
+        <td><button class="btn-icon" data-id="${s.id}">Eliminar</button></td>
+      </tr>`).join('');
+    tbody.querySelectorAll('.btn-icon').forEach(b=>{
+      b.onclick = ()=>{ if(__FIREBASE_OK__) db.ref('alumnos/'+routeId+'/'+b.dataset.id).remove(); };
+    });
+  }
+
+  admMarkers.forEach(m=>mapAdmin.removeLayer(m));
+  admMarkers = [];
+  if(admLine){ mapAdmin.removeLayer(admLine); admLine = null; }
+  admMarkers.push(L.marker(SCHOOL, {title:'Colegio'}).addTo(mapAdmin));
+  const ok = list.filter(s=>s.status==='ok' && s.lat!=null);
+  ok.forEach(s=>{
+    admMarkers.push(L.circleMarker([s.lat,s.lng], {radius:7, color:'#fff', weight:2, fillColor:ROUTES[routeId].color, fillOpacity:1}).addTo(mapAdmin).bindTooltip(s.name));
+  });
+  if(ok.length){
+    mapAdmin.fitBounds(L.latLngBounds([SCHOOL, ...ok.map(s=>[s.lat,s.lng])]), {padding:[30,30]});
+  }else{
+    mapAdmin.setView(SCHOOL, 12);
+  }
+}
+
+document.getElementById('btnOptimize').onclick = async ()=>{
+  const routeId = admRouteSel.value;
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+  const snap = await db.ref('alumnos/'+routeId).once('value');
+  const studentsObj = snap.val() || {};
+  const list = Object.values(studentsObj).filter(s=>s.status==='ok' && s.lat!=null);
+  if(!list.length){ toast('Agrega al menos un alumno ubicado en el mapa antes de optimizar'); return; }
+
+  const btn = document.getElementById('btnOptimize');
+  btn.disabled = true; btn.textContent = 'Calculando...';
+  const ordered = nearestNeighborOrder(list);
+  const path = [SCHOOL, ...ordered.map(s=>[s.lat, s.lng])];
+  await db.ref('rutas/'+routeId+'/optimizado').set({ path, nombres: ordered.map(s=>s.name) });
+
+  if(admLine) mapAdmin.removeLayer(admLine);
+  admLine = L.polyline(path, {color:ROUTES[routeId].color, weight:4, opacity:.8, dashArray:'2 8'}).addTo(mapAdmin);
+  mapAdmin.fitBounds(admLine.getBounds(), {padding:[30,30]});
+  btn.disabled = false; btn.textContent = 'Generar ruta óptima';
+  toast('Ruta óptima generada — ya se refleja en Auxiliar y Padre');
+};
+
+document.getElementById('btnSeedDemo').onclick = async ()=>{
+  if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
+  const btn = document.getElementById('btnSeedDemo');
+  btn.disabled = true; btn.textContent = 'Generando...';
+  let totalStudents = 0, totalParents = 0;
+
+  for(const routeId of ROUTE_KEYS){
+    const path = ROUTES[routeId].path;
+    const colonia = ROUTE_COLONIA[routeId];
+    const studentsUpdate = {};
+    const studentEntries = [];
+
+    for(let i=0;i<10;i++){
+      const segIndex = Math.floor(Math.random()*(path.length-1));
+      const t = Math.random();
+      const p0 = path[segIndex], p1 = path[segIndex+1];
+      const lat = lerp(p0[0], p1[0], t) + (Math.random()-0.5)*0.006;
+      const lng = lerp(p0[1], p1[1], t) + (Math.random()-0.5)*0.006;
+      const key = db.ref('alumnos/'+routeId).push().key;
+      const student = {
+        name: randDemoName(),
+        address: `Calle ${randPick(DEMO_STREETS)} ${10+Math.floor(Math.random()*300)}, ${colonia}, CDMX`,
+        turno: 'ambos', lat, lng, status: 'ok', ausente: false
+      };
+      studentsUpdate[key] = student;
+      studentEntries.push({id:key, ...student});
+    }
+    await db.ref('alumnos/'+routeId).set(studentsUpdate);
+    totalStudents += studentEntries.length;
+
+    await db.ref('auxiliares/'+routeId).set({ name: randDemoName() });
+
+    const padresUpdate = {};
+    studentEntries.forEach((s, idx)=>{
+      const numPadres = idx < 5 ? 1 : 2;
+      for(let p=0;p<numPadres;p++){
+        const pkey = db.ref('padres/'+routeId).push().key;
+        padresUpdate[pkey] = { studentId: s.id, studentName: s.name, name: randDemoName() };
+      }
+    });
+    await db.ref('padres/'+routeId).set(padresUpdate);
+    totalParents += Object.keys(padresUpdate).length;
+
+    await db.ref('rutas/'+routeId+'/optimizado').remove();
+  }
+
+  btn.disabled = false; btn.textContent = 'Sembrar datos de prueba en las 5 rutas';
+  document.getElementById('seedSummary').innerHTML = `<span class="badge live">${totalStudents} alumnos · 5 auxiliares · ${totalParents} padres generados</span>`;
+  toast('Datos de prueba cargados en Firebase — genera la ruta óptima de cada una');
+};
+
+function attachAdminListeners(routeId){
+  if(admStudentsRef) admStudentsRef.off();
+  if(admAuxRef) admAuxRef.off();
+  if(admPadresRef) admPadresRef.off();
+  if(!__FIREBASE_OK__){ renderAdminTable(routeId, null, null, null); return; }
+
+  let latestStudents=null, latestAux=null, latestPadres=null;
+  function render(){ renderAdminTable(routeId, latestStudents, latestAux, latestPadres); }
+
+  admStudentsRef = db.ref('alumnos/'+routeId);
+  admStudentsRef.on('value', snap=>{ latestStudents = snap.val(); render(); });
+  admAuxRef = db.ref('auxiliares/'+routeId);
+  admAuxRef.on('value', snap=>{ latestAux = snap.val(); render(); });
+  admPadresRef = db.ref('padres/'+routeId);
+  admPadresRef.on('value', snap=>{ latestPadres = snap.val(); render(); });
+}
+
+admRouteSel.addEventListener('change', ()=>attachAdminListeners(admRouteSel.value));
+
+/* ---------- Init ---------- */
+drawDriverRoute(ROUTES.r1.path, ROUTES.r1.color);
+attachDriverListeners('r1');
+/* Padre y Admin se inicializan hasta que el usuario abre esa pestaña por primera vez
+   (evita el bug de Leaflet al crear un mapa dentro de un contenedor oculto). */
+
+if(!__FIREBASE_OK__){
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:sticky;top:56px;z-index:999;background:#f2e2e0;color:#8a2f1c;padding:8px 16px;font-size:12px;text-align:center;border-bottom:1px solid #e3b2a4;';
+  banner.textContent = 'No se pudo conectar a Firebase — revisa la configuración. El resto de la app sigue funcionando visualmente.';
+  document.body.insertBefore(banner, document.querySelector('main'));
+}
+if(window.__LEAFLET_FAILED__){
+  const banner2 = document.createElement('div');
+  banner2.style.cssText = 'position:sticky;top:56px;z-index:999;background:#f2e2e0;color:#8a2f1c;padding:8px 16px;font-size:12px;text-align:center;border-bottom:1px solid #e3b2a4;';
+  banner2.textContent = 'No se pudo cargar el mapa (falló la conexión al proveedor de mapas). El resto de la app funciona con normalidad.';
+  document.body.insertBefore(banner2, document.querySelector('main'));
+}
+</script>
+</body>
+</html>
