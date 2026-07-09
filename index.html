@@ -14,6 +14,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <style>
   :root{
     --forest: #4a8bc4;
@@ -216,7 +217,7 @@
       <div class="clock-label">Vamos hacia:</div>
       <div class="clock-name" id="clockName">—</div>
       <div class="clock-time" id="clockTime">--:--</div>
-      <div class="clock-sub">Tiempo estimado, calculado por distancia y velocidad promedio</div>
+      <div class="clock-sub" id="clockSub">Tiempo estimado, calculado por distancia y velocidad promedio</div>
     </div>
     <div class="card">
       <h2>Mapa en vivo — vista de la auxiliar</h2>
@@ -256,6 +257,11 @@
         <span id="parentStatus" class="badge stopped">Sin viaje activo</span>
       </div>
       <div id="map" style="height:320px;border-radius:14px;overflow:hidden;border:1px solid var(--line);"></div>
+    </div>
+    <div class="card">
+      <h2>Notificaciones push</h2>
+      <p class="note" id="pushStatusNote">Actívalas para recibir un aviso en tu celular cuando haya un reporte nuevo de esta ruta — sin necesidad de tener la app abierta.</p>
+      <button id="btnEnablePush" class="primary">Activar notificaciones de esta ruta</button>
     </div>
     <div class="card" id="ratingCard" style="display:none;">
       <h2>¿Cómo estuvo el viaje?</h2>
@@ -417,6 +423,16 @@ try{
   console.error('Firebase no se pudo inicializar', e);
 }
 
+/* Clave de la Routes API de Google — pégala aquí cuando la tengas.
+   Si se deja vacía, el reloj sigue funcionando con la estimación por
+   distancia en línea recta (sin tráfico real). */
+const GOOGLE_ROUTES_API_KEY = "";
+
+/* Clave pública VAPID para notificaciones push — Firebase Console →
+   Configuración del proyecto → Cloud Messaging → Certificados push web
+   → "Generar par de claves". Gratis, no requiere forma de pago. */
+const FCM_VAPID_KEY = "BPML1il-MfrsVRQ0xPDiV9v0YNAQOSJMCug_psQvLz7ttuSH9u8DO8dT4-pUwVuzl6s8w-KdcNuT-hO35fjdK_o";
+
 /* ---------- Datos base ---------- */
 const SCHOOL = [19.3033, -99.3222];
 const ROUTES = {
@@ -506,6 +522,51 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).a
 let driverLine, driverMarker;
 let simInterval = null, simStep = 0, simPath = null, simStopNames = null;
 const AVG_SPEED_KMH = 22;
+let trafficFactor = 1;
+let trafficCalibrated = false;
+let trafficInterval = null;
+let lastTickLatLng = null, lastTickNextIdx = null, lastTickPath = null;
+
+async function fetchRealETA(origin, destination){
+  if(!GOOGLE_ROUTES_API_KEY) return null;
+  try{
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_ROUTES_API_KEY,
+        'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters'
+      },
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: origin[0], longitude: origin[1] } } },
+        destination: { location: { latLng: { latitude: destination[0], longitude: destination[1] } } },
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_AWARE',
+        departureTime: new Date().toISOString()
+      })
+    });
+    const data = await res.json();
+    if(data.routes && data.routes[0] && data.routes[0].duration){
+      return parseInt(data.routes[0].duration.replace('s',''));
+    }
+  }catch(e){ console.error('Routes API error', e); }
+  return null;
+}
+
+async function refreshTrafficFactor(){
+  if(!lastTickLatLng || lastTickNextIdx==null || !lastTickPath) return;
+  if(lastTickNextIdx >= lastTickPath.length) return;
+  const origin = lastTickLatLng;
+  const destination = lastTickPath[lastTickNextIdx];
+  const haversineDistKm = haversineKm(origin, destination);
+  const haversineSeconds = (haversineDistKm/AVG_SPEED_KMH)*3600;
+  const realSeconds = await fetchRealETA(origin, destination);
+  if(realSeconds && haversineSeconds > 5){
+    trafficFactor = Math.max(0.4, Math.min(3, realSeconds / haversineSeconds));
+    trafficCalibrated = true;
+    document.getElementById('clockSub').textContent = 'Tiempo estimado con tráfico en tiempo real (Google Maps)';
+  }
+}
 
 let driverStudentsRef = null, driverAuxRef = null;
 
@@ -529,7 +590,7 @@ function updateClockDisplay(currentLatLng, nextIdx, path){
   clockCard.style.display = 'block';
   const nextPoint = path[nextIdx];
   const distKm = haversineKm(currentLatLng, nextPoint);
-  const etaSeconds = (distKm / AVG_SPEED_KMH) * 3600;
+  const etaSeconds = (distKm / AVG_SPEED_KMH) * 3600 * trafficFactor;
   let label = 'Colegio';
   if(simStopNames && simStopNames[nextIdx-1]) label = simStopNames[nextIdx-1];
   else if(nextIdx > 0) label = 'Parada ' + nextIdx;
@@ -550,6 +611,9 @@ function tickSimulation(){
   const lng = lerp(p0[1], p1[1], t);
   driverMarker.setLatLng([lat,lng]);
   mapDriver.panTo([lat,lng], {animate:true});
+  lastTickLatLng = [lat,lng];
+  lastTickNextIdx = segIndex+1;
+  lastTickPath = path;
   updateClockDisplay([lat,lng], segIndex+1, path);
   if(__FIREBASE_OK__) db.ref('rutas/'+routeId+'/ubicacion').set({lat, lng, active:true, updated:Date.now()});
   simStep++;
@@ -568,6 +632,7 @@ function finishRoute(routeId){
 }
 function stopSimulation(){
   if(simInterval){ clearInterval(simInterval); simInterval=null; }
+  if(trafficInterval){ clearInterval(trafficInterval); trafficInterval=null; }
   simStep = 0;
 }
 
@@ -582,9 +647,12 @@ document.getElementById('btnToggleRoute').onclick = async ()=>{
     statusEl.textContent = 'Detenida';
     statusEl.className = 'badge stopped';
     document.getElementById('clockCard').style.display = 'none';
+    if(trafficInterval){ clearInterval(trafficInterval); trafficInterval = null; }
     if(__FIREBASE_OK__) db.ref('rutas/'+routeId+'/ubicacion/active').set(false);
   }else{
     simStep = 0;
+    trafficFactor = 1;
+    trafficCalibrated = false;
     const snap = __FIREBASE_OK__ ? await db.ref('rutas/'+routeId+'/optimizado').once('value') : null;
     const opt = snap ? snap.val() : null;
     simPath = (opt && opt.path) ? opt.path : ROUTES[routeId].path;
@@ -594,6 +662,10 @@ document.getElementById('btnToggleRoute').onclick = async ()=>{
     statusEl.textContent = 'En vivo';
     statusEl.className = 'badge live';
     simInterval = setInterval(tickSimulation, 900);
+    if(GOOGLE_ROUTES_API_KEY){
+      trafficInterval = setInterval(refreshTrafficFactor, 60000);
+      setTimeout(refreshTrafficFactor, 3000);
+    }
     toast('Simulando GPS — en un celular real esto vendría de navigator.geolocation');
   }
 };
@@ -751,6 +823,53 @@ starsEl.querySelectorAll('span').forEach(star=>{
     if(__FIREBASE_OK__) db.ref('calificaciones/'+parentRouteSel.value).push({v, date: Date.now()});
   };
 });
+
+/* ---------- Notificaciones push ---------- */
+document.getElementById('btnEnablePush').onclick = async ()=>{
+  const note = document.getElementById('pushStatusNote');
+  const btn = document.getElementById('btnEnablePush');
+
+  if(!('Notification' in window) || !('serviceWorker' in navigator)){
+    note.textContent = 'Tu navegador no soporta notificaciones push.';
+    return;
+  }
+  if(!FCM_VAPID_KEY){
+    note.textContent = 'Las notificaciones aún no están configuradas del lado del servidor (falta la clave VAPID). Por ahora no se pueden activar.';
+    return;
+  }
+  if(!firebase.messaging){
+    note.textContent = 'No se pudo cargar el módulo de mensajería.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Solicitando permiso...';
+  try{
+    const permission = await Notification.requestPermission();
+    if(permission !== 'granted'){
+      note.textContent = 'No se concedió permiso de notificaciones. Puedes activarlas más tarde desde la configuración del navegador.';
+      btn.disabled = false; btn.textContent = 'Activar notificaciones de esta ruta';
+      return;
+    }
+    const registration = await navigator.serviceWorker.ready;
+    const messaging = firebase.messaging();
+    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: registration });
+    if(token && __FIREBASE_OK__){
+      const routeId = parentRouteSel.value;
+      const key = token.replace(/[.#$/\[\]]/g, '_');
+      await db.ref('pushTokens/'+routeId+'/'+key).set({ token, savedAt: Date.now() });
+      note.textContent = 'Notificaciones activadas para esta ruta. ✅';
+      btn.textContent = 'Notificaciones activadas';
+    }else{
+      note.textContent = 'No se pudo obtener el token de notificaciones.';
+      btn.disabled = false; btn.textContent = 'Activar notificaciones de esta ruta';
+    }
+  }catch(e){
+    console.error('Error activando push', e);
+    note.textContent = 'Ocurrió un error activando las notificaciones.';
+    btn.disabled = false; btn.textContent = 'Activar notificaciones de esta ruta';
+  }
+};
 
 /* =========================================================
    ADMIN
