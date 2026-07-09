@@ -194,6 +194,7 @@
   <div class="tabs">
     <button id="tabDriver" class="active">Auxiliar</button>
     <button id="tabParent">Padre</button>
+    <button id="tabConductor">Conductor</button>
     <button id="tabAdmin">Admin</button>
   </div>
 </header>
@@ -273,6 +274,31 @@
     <div class="card">
       <h2>Reportes recientes de esta ruta</h2>
       <div id="incidentList" class="incident-list"><p class="empty">Sin reportes por ahora.</p></div>
+    </div>
+  </div>
+
+  <!-- ===================== VISTA CONDUCTOR (solo informativa) ===================== -->
+  <div id="panelConductor" class="panel">
+    <div class="card">
+      <h2>Mi ruta</h2>
+      <p class="note">Selecciona tu ruta una sola vez, al inicio del día. Después de eso, esta pantalla se actualiza sola — no necesitas tocar nada más mientras manejas.</p>
+      <select id="conductorRoute"></select>
+      <div class="status-row" style="margin-top:10px;">
+        <span id="conductorStatus" class="badge stopped">Esperando a que inicie el recorrido</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Mapa de la ruta</h2>
+      <div id="mapConductor" style="height:340px;border-radius:14px;overflow:hidden;border:1px solid var(--line);"></div>
+    </div>
+    <div class="card clock-card" id="conductorClockCard" style="display:none;">
+      <h2 style="text-align:left;">Parada más cercana</h2>
+      <div class="clock-label">Punto de referencia:</div>
+      <div class="clock-name" id="conductorClockName">—</div>
+    </div>
+    <div class="card">
+      <h2>Orden de paradas</h2>
+      <div id="conductorStopList"><p class="empty">Aún no hay una ruta óptima generada para esta ruta.</p></div>
     </div>
   </div>
 
@@ -475,12 +501,14 @@ function formatMMSS(totalSeconds){
 /* ---------- Tabs ---------- */
 const tabDriver = document.getElementById('tabDriver');
 const tabParent = document.getElementById('tabParent');
+const tabConductor = document.getElementById('tabConductor');
 const tabAdmin = document.getElementById('tabAdmin');
 const panelDriver = document.getElementById('panelDriver');
 const panelParent = document.getElementById('panelParent');
+const panelConductor = document.getElementById('panelConductor');
 const panelAdmin = document.getElementById('panelAdmin');
-const allTabs = [tabDriver, tabParent, tabAdmin];
-const allPanels = [panelDriver, panelParent, panelAdmin];
+const allTabs = [tabDriver, tabParent, tabConductor, tabAdmin];
+const allPanels = [panelDriver, panelParent, panelConductor, panelAdmin];
 function activateTab(tab, panel){
   allTabs.forEach(t=>t.classList.remove('active'));
   allPanels.forEach(p=>p.classList.remove('active'));
@@ -503,15 +531,23 @@ tabAdmin.onclick = ()=>{
   setTimeout(()=>mapAdmin.invalidateSize(), 100);
   attachAdminListeners(admRouteSel.value);
 };
+tabConductor.onclick = ()=>{
+  activateTab(tabConductor, panelConductor);
+  ensureMapConductor();
+  setTimeout(()=>mapConductor.invalidateSize(), 100);
+  attachConductorListeners(conductorRouteSel.value);
+};
 
 /* ---------- Selects ---------- */
 const driverRouteSel = document.getElementById('driverRoute');
 const parentRouteSel = document.getElementById('parentRoute');
+const conductorRouteSel = document.getElementById('conductorRoute');
 const admRouteSel = document.getElementById('admRoute');
 ROUTE_KEYS.forEach(k=>{
   const o1 = document.createElement('option'); o1.value=k; o1.textContent=ROUTES[k].name; driverRouteSel.appendChild(o1);
   const o2 = document.createElement('option'); o2.value=k; o2.textContent=ROUTES[k].name; parentRouteSel.appendChild(o2);
   const o3 = document.createElement('option'); o3.value=k; o3.textContent=ROUTES[k].name; admRouteSel.appendChild(o3);
+  const o4 = document.createElement('option'); o4.value=k; o4.textContent=ROUTES[k].name; conductorRouteSel.appendChild(o4);
 });
 
 /* =========================================================
@@ -1138,6 +1174,95 @@ document.getElementById('btnSaveConfig').onclick = async ()=>{
   });
   toast('Correos de notificación guardados');
 };
+
+/* =========================================================
+   CONDUCTOR (solo informativo — nunca escribe nada a Firebase)
+   ========================================================= */
+let mapConductor = null;
+function ensureMapConductor(){
+  if(mapConductor) return mapConductor;
+  mapConductor = L.map('mapConductor').setView(SCHOOL, 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(mapConductor);
+  return mapConductor;
+}
+let conductorLine = null, conductorMarker = null;
+let conductorLocRef = null;
+let conductorPath = null, conductorStopNames = null;
+
+function drawConductorRoute(path, color){
+  if(conductorLine) mapConductor.removeLayer(conductorLine);
+  if(conductorMarker) mapConductor.removeLayer(conductorMarker);
+  conductorLine = L.polyline(path, {color, weight:4, opacity:.7}).addTo(mapConductor);
+  conductorMarker = L.marker(path[0], {icon: ALEX_MARKER_ICON}).addTo(mapConductor);
+  mapConductor.fitBounds(conductorLine.getBounds(), {padding:[30,30]});
+}
+
+function renderConductorStopList(stopNames, nearestIdx){
+  const container = document.getElementById('conductorStopList');
+  if(!stopNames || !stopNames.length){
+    container.innerHTML = '<p class="empty">Aún no hay una ruta óptima generada para esta ruta.</p>';
+    return;
+  }
+  container.innerHTML = stopNames.map((name, i)=>`
+    <div class="roster-row ${i===nearestIdx ? 'absent':''}">
+      <div class="roster-info">
+        <span class="order-badge">${i+1}</span><strong>${name}</strong>
+      </div>
+    </div>`).join('');
+}
+
+function updateConductorNearestStop(currentLatLng){
+  const clockCard = document.getElementById('conductorClockCard');
+  if(!conductorPath || conductorPath.length < 2){ clockCard.style.display = 'none'; return; }
+  let bestIdx = -1, bestDist = Infinity;
+  for(let i=1;i<conductorPath.length;i++){
+    const d = haversineKm(currentLatLng, conductorPath[i]);
+    if(d < bestDist){ bestDist = d; bestIdx = i; }
+  }
+  if(bestIdx === -1){ clockCard.style.display = 'none'; return; }
+  clockCard.style.display = 'block';
+  const label = (conductorStopNames && conductorStopNames[bestIdx-1]) ? conductorStopNames[bestIdx-1] : ('Parada ' + bestIdx);
+  document.getElementById('conductorClockName').textContent = label;
+  renderConductorStopList(conductorStopNames, bestIdx-1);
+}
+
+function attachConductorListeners(routeId){
+  if(conductorLocRef) conductorLocRef.off();
+
+  db.ref('rutas/'+routeId+'/optimizado').once('value').then(snap=>{
+    const opt = snap.val();
+    conductorPath = (opt && opt.path) ? opt.path : ROUTES[routeId].path;
+    conductorStopNames = (opt && opt.nombres) ? opt.nombres : null;
+    drawConductorRoute(conductorPath, ROUTES[routeId].color);
+    renderConductorStopList(conductorStopNames, -1);
+  });
+
+  if(!__FIREBASE_OK__) return;
+  conductorLocRef = db.ref('rutas/'+routeId+'/ubicacion');
+  conductorLocRef.on('value', snap=>{
+    if(!conductorMarker) return;
+    const state = snap.val();
+    const statusEl = document.getElementById('conductorStatus');
+    if(state && state.lat){
+      conductorMarker.setLatLng([state.lat, state.lng]);
+      if(state.active){
+        statusEl.textContent = 'Recorrido en curso';
+        statusEl.className = 'badge live';
+        updateConductorNearestStop([state.lat, state.lng]);
+      }else if(state.finished){
+        statusEl.textContent = 'Recorrido finalizado';
+        statusEl.className = 'badge stopped';
+        document.getElementById('conductorClockCard').style.display = 'none';
+      }else{
+        statusEl.textContent = 'Esperando a que inicie el recorrido';
+        statusEl.className = 'badge stopped';
+        document.getElementById('conductorClockCard').style.display = 'none';
+      }
+    }
+  });
+}
+
+conductorRouteSel.addEventListener('change', ()=>attachConductorListeners(conductorRouteSel.value));
 
 /* ---------- Init ---------- */
 drawDriverRoute(ROUTES.r1.path, ROUTES.r1.color);
