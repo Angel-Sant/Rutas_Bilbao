@@ -1004,9 +1004,8 @@ document.getElementById('btnSeedDemo').onclick = async ()=>{
   if(!__FIREBASE_OK__){ toast('Sin conexión a Firebase'); return; }
   const btn = document.getElementById('btnSeedDemo');
   btn.disabled = true; btn.textContent = 'Generando...';
-  let totalStudents = 0, totalParents = 0;
 
-  for(const routeId of ROUTE_KEYS){
+  const routeTasks = ROUTE_KEYS.map(async (routeId)=>{
     const path = ROUTES[routeId].path;
     const colonia = ROUTE_COLONIA[routeId];
     const studentsUpdate = {};
@@ -1027,10 +1026,6 @@ document.getElementById('btnSeedDemo').onclick = async ()=>{
       studentsUpdate[key] = student;
       studentEntries.push({id:key, ...student});
     }
-    await db.ref('alumnos/'+routeId).set(studentsUpdate);
-    totalStudents += studentEntries.length;
-
-    await db.ref('auxiliares/'+routeId).set({ name: randDemoName() });
 
     const padresUpdate = {};
     studentEntries.forEach((s)=>{
@@ -1039,11 +1034,22 @@ document.getElementById('btnSeedDemo').onclick = async ()=>{
         padresUpdate[pkey] = { studentId: s.id, studentName: s.name, name: randDemoName() };
       }
     });
-    await db.ref('padres/'+routeId).set(padresUpdate);
-    totalParents += Object.keys(padresUpdate).length;
 
-    await db.ref('rutas/'+routeId+'/optimizado').remove();
-  }
+    // las 4 escrituras de esta ruta se mandan en paralelo entre sí
+    await Promise.all([
+      db.ref('alumnos/'+routeId).set(studentsUpdate),
+      db.ref('auxiliares/'+routeId).set({ name: randDemoName() }),
+      db.ref('padres/'+routeId).set(padresUpdate),
+      db.ref('rutas/'+routeId+'/optimizado').remove(),
+    ]);
+
+    return { students: studentEntries.length, parents: Object.keys(padresUpdate).length };
+  });
+
+  // y las 5 rutas también se procesan en paralelo entre sí
+  const results = await Promise.all(routeTasks);
+  const totalStudents = results.reduce((sum,r)=>sum+r.students, 0);
+  const totalParents = results.reduce((sum,r)=>sum+r.parents, 0);
 
   btn.disabled = false; btn.textContent = 'Sembrar datos de prueba en las 5 rutas';
   document.getElementById('seedSummary').innerHTML = `<span class="badge live">${totalStudents} alumnos · 5 auxiliares · ${totalParents} padres generados</span>`;
